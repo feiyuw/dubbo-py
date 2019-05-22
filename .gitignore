@@ -1,0 +1,13 @@
+## common
+*.swp
+
+.cache/
+
+__pycache__/
+*.py[cod]
+*$py.class
+dist/
+dubbo_py.egg-info
+.DS_Store
+.pytest_cache/
+.mypy_cache/
