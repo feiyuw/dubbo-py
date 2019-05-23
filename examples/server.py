@@ -1,14 +1,13 @@
 import time
 from dubbo.server import DubboService
-from dubbo.codec.hessian2 import DubboResponse
 
 
-def _multi_2_handler(request, sock):
-    return sock.sendall(DubboResponse(request.id, DubboResponse.OK, request.args[0] * 2, None).encode())
+def _multi_2_handler(num):
+    return num * 2
 
 
-def _exp_handler(request, sock):
-    return sock.sendall(DubboResponse(request.id, DubboResponse.OK, request.args[0] ** 2, None).encode())
+def _exp_handler(num):
+    return num ** 2
 
 
 if __name__ == '__main__':
