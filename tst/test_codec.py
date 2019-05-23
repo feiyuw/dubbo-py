@@ -1,5 +1,5 @@
 from io import BytesIO
-from dubbo.codec.hessian2 import Decoder, _desc_to_cls_names, _cls_names_to_desc, encode_object, DubboResponse, DubboHeartBeatResponse, DubboHeartBeatRequest, new_object
+from dubbo.codec.hessian2 import Decoder, _desc_to_cls_names, _cls_names_to_desc, encode_object, DubboRequest, DubboResponse, DubboHeartBeatResponse, DubboHeartBeatRequest, new_object
 from dubbo.java_class import JavaList
 
 
@@ -86,16 +86,31 @@ def test_heartbeat_decode():
     assert hb.data is None
 
 
+def test_request_encode():
+    msg = DubboRequest(id=1, twoway=True, dubbo_version='2.5.3', service_name='calc', service_version='1.0', method_name='exp', args=[4], attachment={})
+    assert msg.encode() == b'\xda\xbb\xc2\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x18\x052.5.3\x04calc\x031.0\x03exp\x01I\x94HZ'
+
+
+def test_request_decode():
+    data = b'\xda\xbb\xc2\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x18\x052.5.3\x04calc\x031.0\x03exp\x01I\x94HZ'
+    msg = Decoder(BytesIO(data)).decode()
+    assert msg.id == 1
+    assert msg.service_name == b'calc'
+    assert msg.service_version == b'1.0'
+    assert msg.method_name == b'exp'
+
+
 def test_response_decode():
-    msg = b'\xda\xbb\x02\x14\x00\x00\x00\x00\x00\x00\x00\x07\x00\x00\x00\x03\x91\x48\x5a'
+    msg = b'\xda\xbb\x02\x14\x00\x00\x00\x00\x00\x00\x00\x07\x00\x00\x00\x03\x91HZ'
     res = Decoder(BytesIO(msg)).decode()
     assert res.id == 7
+    assert res.error is None
     assert res.data == {}
 
 
 def test_response_encode():
     resp = DubboResponse(7, DubboResponse.OK, {}, None)
-    assert resp.encode() == b'\xda\xbb\x02\x14\x00\x00\x00\x00\x00\x00\x00\x07\x00\x00\x00\x03\x91\x48\x5a'
+    assert resp.encode() == b'\xda\xbb\x02\x14\x00\x00\x00\x00\x00\x00\x00\x07\x00\x00\x00\x03\x91HZ'
 
 
 def test_new_object():

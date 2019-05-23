@@ -10,6 +10,7 @@ from kazoo.exceptions import NodeExistsError
 from socketserver import ThreadingTCPServer, BaseRequestHandler
 from .utils import get_pub_ip, get_timestamp, iter_directory
 from .codec.hessian2 import Decoder, DubboHeartBeatRequest, DubboHeartBeatResponse, DubboResponse
+from .errors import DubboError
 
 
 __all__ = ('DubboService', )
@@ -43,7 +44,7 @@ class DubboService(object):
                 try:
                     client.create(path)
                 except NodeExistsError:
-                    logging.warn('node "%s" exist!' % path)
+                    logging.warning('node "%s" exist!' % path)
 
     def start(self):
         self._server.start()
@@ -94,7 +95,7 @@ def _get_dubbo_request_handler(handler_map):
                     logging.debug(f'got message {msg}')
 
                     if isinstance(msg, DubboHeartBeatRequest):  # heartbeat request
-                        self.request.sendall(DubboHeartBeatResponse(msg.id))
+                        self.request.sendall(DubboHeartBeatResponse(msg.id).encode())
                         continue
                     elif isinstance(msg, DubboHeartBeatResponse):  # heartbeat response
                         logging.debug('skip heartbeat response message')
@@ -107,10 +108,17 @@ def _get_dubbo_request_handler(handler_map):
                         else:
                             handler = None
                     if not handler:
-                        logging.warn(handler_map)
-                        logging.warn(f'no handler for {msg.service_name}.{msg.method_name}')
+                        logging.warning(f'no handler for {msg.service_name}.{msg.method_name}')
                         continue
-                    handler(msg, self.request)  # DubboRequest instance, socket instance
+                    try:
+                        resp = DubboResponse(msg.id, DubboResponse.OK, handler(*msg.args), None)
+                    except DubboError as err:
+                        resp = DubboResponse(msg.id, err.status, None, err.message)
+                    except EOFError:
+                        raise
+                    except Exception as err:
+                        resp = DubboResponse(msg.id, DubboResponse.UnknownError, None, str(err))
+                    self.request.sendall(resp.encode())
                 except EOFError:
                     try:
                         self.request.shutdown(socket.SHUT_RDWR)
@@ -126,7 +134,7 @@ def _get_dubbo_request_handler(handler_map):
                     logging.debug('send heartbeat msg to consumer')
                     self.request.sendall(DubboHeartBeatRequest(next(self._request_id), twoway=True).encode())
                 except EOFError:
-                    logging.warn('got EOF error, stop heartbeat loop!')
+                    logging.warning('got EOF error, stop heartbeat loop!')
                     return
 
         # builtin handlers
@@ -136,6 +144,6 @@ def _get_dubbo_request_handler(handler_map):
 
         def _empty_ok(self, request, sock):
             # response {}
-            return sock.sendall(DubboResponse(request.id, DubboResponse.OK, {}, None).encode())
+            return {}
 
     return _DubboRequestHandler

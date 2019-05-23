@@ -117,16 +117,19 @@ class Decoder(object):
             args.append(self._read_object())
         # parse attachment
         attachment = self._read_object()
-        return DubboRequest(id_, self._twoway, dubbo_version, service_name, service_version, method_name, args, attachment)
+        return DubboRequest(id=id_, twoway=self._twoway, dubbo_version=dubbo_version, service_name=service_name, service_version=service_version, method_name=method_name, args=args, attachment=attachment)
 
     def _decode_response_body(self, id_, status):
+        data, error = None, None
         if status == DubboResponse.OK:
-            self._read(1)  # TODO: see DecodeableRpcResult.java decode
-            data = self._read_object()
-            return DubboResponse(id_, status, data, None)
+            status_code = self._read_int()  # TODO: see DecodeableRpcResult.java decode
+            if status_code == 1:
+                data = self._read_object()
+            elif status_code == 0:  # XXX: it should be error, need confirm
+                data = self._read_object()
         else:
             error = self._read_object()
-            return DubboResponse(id_, status, None, error)
+        return DubboResponse(id_, status, data, error)
 
     def _read_bytes(self):
         tag = ord(self._read(1))
@@ -603,7 +606,7 @@ def encode_object(field, idx=0, cls_names=[]):
 
 
 class DubboRequest(object):
-    def __init__(self, id, twoway, dubbo_version, service_name, service_version, method_name, args, attachment):
+    def __init__(self, id, twoway, dubbo_version, service_name, method_name, args, service_version='1.0', attachment={}):
         self.id = id
         self.twoway = twoway
         self.dubbo_version = dubbo_version
@@ -656,6 +659,9 @@ class DubboRequest(object):
     def _get_attachment(self):
         return encode_object(self.attachment)
 
+    def __repr__(self):
+        return f'dubbo_version: {self.dubbo_version}, method: {self.service_name}.{self.method_name}:{self.service_version}, args: {self.args}, attachment: {self.attachment}'
+
 
 class _HeartBeat(object):
     def __init__(self, id, data=None, twoway=False):
@@ -693,6 +699,9 @@ class _HeartBeat(object):
     def _get_body(self):
         return encode_object(self.data)
 
+    def __repr__(self):
+        return f'id: {self.id}, twoway: {self._twoway}'
+
 
 class DubboHeartBeatRequest(_HeartBeat):
     def _get_flag(self):
@@ -712,6 +721,7 @@ class DubboHeartBeatResponse(_HeartBeat):
 
 class DubboResponse(object):
     OK = 20
+    UnknownError = 90
 
     def __init__(self, id, status, data, error):
         self.id = id
@@ -745,10 +755,10 @@ class DubboResponse(object):
         stream.write(body)
 
     def _get_body(self):
-        status_byte = int_to_bytes(1 + 0x90)  # TODO: status byte by error or data
-        if self.data is None:
-            return status_byte + encode_object(self.error)
-        return status_byte + encode_object(self.data)
+        if self.error is None:
+            status_byte = self.data is None and int_to_bytes(2 + 0x90) or int_to_bytes(1 + 0x90)
+            return status_byte + encode_object(self.data)
+        return encode_object(self.error)
 
     def __repr__(self):
         return f'id: {self.id}, status: {self.status}, data: {self.data}, error: {self.error}'

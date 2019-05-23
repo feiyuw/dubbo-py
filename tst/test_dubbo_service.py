@@ -2,7 +2,7 @@ from kazoo.exceptions import NodeExistsError
 from dubbo import server
 from dubbo.client import DubboClient
 from dubbo.server import DubboService
-from dubbo.codec.hessian2 import DubboResponse
+from dubbo.errors import DubboError
 
 
 _paths = []
@@ -51,15 +51,26 @@ def test_dubbo_register():
 def test_dubbo_handler():
     service = DubboService(12358, 'unittest')
 
-    def _multi_2_handler(request, sock):
-        return sock.sendall(DubboResponse(request.id, DubboResponse.OK, request.args[0] * 2, None).encode())
+    def _multi_2_handler(num):
+        return num * 2
 
-    def _exp_handler(request, sock):
-        return sock.sendall(DubboResponse(request.id, DubboResponse.OK, request.args[0] ** 2, None).encode())
+    def _exp_handler(num):
+        return num ** 2
+
+    def _divide_handler(a, b):
+        if b == 0:
+            raise DubboError(40, 'divide by zero')
+        return a / b
 
     service.add_method('calc', 'multi2', _multi_2_handler)
     service.add_method('calc', 'exp', _exp_handler)
+    service.add_method('calc', 'divide', _divide_handler)
     service.start()
     client = DubboClient('127.0.0.1', 12358)
     assert client.send_request_and_return_response(service_name='calc', method_name='exp', service_version='1.0', args=[4], attachment={}).data == 16
     assert client.send_request_and_return_response(service_name='calc', method_name='multi2', service_version='1.0', args=[4], attachment={}).data == 8
+    assert client.send_request_and_return_response(service_name='calc', method_name='divide', args=[3, 2]).data == 1.5
+    error_resp = client.send_request_and_return_response(service_name='calc', method_name='divide', args=[3, 0])
+    assert error_resp.status == 40
+    assert error_resp.data is None
+    assert error_resp.error == 'divide by zero'
