@@ -6,6 +6,7 @@ from io import BytesIO
 from collections import namedtuple
 from ..utils import int_to_bytes, bytes_to_int, bytes_to_long, double_to_bytes, \
     bytes_to_double, timestamp_to_datetime, long_to_bytes
+from ..java_class import JavaList
 
 
 _DUBBO_MAGIC = b'\xda\xbb'
@@ -759,9 +760,3 @@ def new_object(cls_name, **fields):
     cls.__name__ = cls_name
 
     return cls(**fields)
-
-
-JavaList = type('java.util.List', (list, ), {})
-JavaLong = type('java.lang.Long', (long, ), {})
-JavaMap = type('java.util.Map', (dict, ), {})
-JavaString = type('java.lang.String', (str, ), {})

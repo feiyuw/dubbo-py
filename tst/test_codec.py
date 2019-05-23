@@ -1,5 +1,6 @@
 from io import BytesIO
-from dubbo.codec.hessian2 import Decoder, _desc_to_cls_names, _cls_names_to_desc, encode_object, JavaList, DubboResponse, DubboHeartBeatResponse, DubboHeartBeatRequest, new_object
+from dubbo.codec.hessian2 import Decoder, _desc_to_cls_names, _cls_names_to_desc, encode_object, DubboResponse, DubboHeartBeatResponse, DubboHeartBeatRequest, new_object
+from dubbo.java_class import JavaList
 
 
 def test_encode_object():
