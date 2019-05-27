@@ -138,11 +138,11 @@ def _get_dubbo_request_handler(handler_map):
                     return
 
         # builtin handlers
-        def _void(self, request, sock):
+        def _void(self, *args):
             # do nothing
             return
 
-        def _empty_ok(self, request, sock):
+        def _empty_ok(self, *args):
             # response {}
             return {}
 
