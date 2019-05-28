@@ -6,7 +6,6 @@ import socket
 from threading import Thread
 from urllib.parse import quote_plus
 from kazoo.client import KazooClient
-from kazoo.exceptions import NodeExistsError
 from socketserver import ThreadingTCPServer, BaseRequestHandler
 from .utils import get_pub_ip, get_timestamp, iter_directory
 from .codec.hessian2 import Decoder, DubboHeartBeatRequest, DubboHeartBeatResponse, DubboResponse
@@ -37,10 +36,9 @@ class DubboService(object):
         client = KazooClient(zk)
         client.start()
         for service, methods in self._services.items():
-            logging.info('register service "%s", methods "%s" to zookeeper "%s"' % (service, methods, zk))
+            logging.info(f'register service "{service}", methods "{methods}" to zookeeper "{zk}"')
             url = f'dubbo://{self._host}:{self._port}/{service}?anyhost=true&application={self._app}&dubbo={self._dubbo_version}&interface={service}&methods={",".join(methods)}&pid={next(_pid_gen)}&revision={revision}&side=provider&timestamp={get_timestamp()}&version={version}'
-            for path in iter_directory('dubbo', service, 'providers', quote_plus(url)):
-                client.ensure_path(f'/dubbo/{service}/providers/{quote_plus(url)}')
+            client.ensure_path(f'/dubbo/{service}/providers/{quote_plus(url)}')
 
     def start(self):
         self._server.start()
