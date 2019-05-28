@@ -15,8 +15,13 @@ def remote_max(nums):
     return max(nums)
 
 
+def remote_divide(a, b):
+    return a / b
+
+
 service = DubboService(12358, 'demo')
 service.add_method('com.myservice.math', 'max', remote_max)
+service.add_method('com.myservice.math', 'divide', remote_divide)
 # service.register('127.0.0.1:2181', '1.0.0')  # register to zookeeper
 service.start()  # service run in a daemon thread
 
@@ -28,4 +33,7 @@ from dubbo.client import DubboClient
 client = DubboClient('127.0.0.1', 12358)
 resp = client.send_request_and_return_response(service_name='com.myservice.math', method_name='max', args=[[1, 2, 3, 4]])
 print(resp.data)  # 4
+
+resp = client.send_request_and_return_response(service_name='com.myservice.math', method_name='divide', args=[1, 0])
+print(resp.error)  # division by zero
 ```
