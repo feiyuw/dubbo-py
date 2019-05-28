@@ -25,12 +25,11 @@ class DubboService(object):
         1. register
         2. handler
     '''
-    _version = '2.5.3'
-
-    def __init__(self, port, app):
+    def __init__(self, port, app, dubbo_version='2.5.3'):
         self._host = get_pub_ip()
         self._port = port
         self._app = app
+        self._dubbo_version = dubbo_version
         self._services = {}  # {'service-1': {method1: handler-1, method2: handler-2}}
         self._server = _ServerThread(_DubboServer(('0.0.0.0', self._port), _get_dubbo_request_handler(self._services)))
 
@@ -39,12 +38,9 @@ class DubboService(object):
         client.start()
         for service, methods in self._services.items():
             logging.info('register service "%s", methods "%s" to zookeeper "%s"' % (service, methods, zk))
-            url = f'dubbo://{self._host}:{self._port}/{service}?anyhost=true&application={self._app}&dubbo={self._version}&interface={service}&methods={",".join(methods)}&pid={next(_pid_gen)}&revision={revision}&side=provider&timestamp={get_timestamp()}&version={version}'
+            url = f'dubbo://{self._host}:{self._port}/{service}?anyhost=true&application={self._app}&dubbo={self._dubbo_version}&interface={service}&methods={",".join(methods)}&pid={next(_pid_gen)}&revision={revision}&side=provider&timestamp={get_timestamp()}&version={version}'
             for path in iter_directory('dubbo', service, 'providers', quote_plus(url)):
-                try:
-                    client.create(path)
-                except NodeExistsError:
-                    logging.warning('node "%s" exist!' % path)
+                client.ensure_path(f'/dubbo/{service}/providers/{quote_plus(url)}')
 
     def start(self):
         self._server.start()
