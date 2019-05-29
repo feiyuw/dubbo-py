@@ -111,6 +111,7 @@ def test_response_decode():
 def test_response_encode():
     assert DubboResponse(7, DubboResponse.OK, {}, None).encode() == b'\xda\xbb\x02\x14\x00\x00\x00\x00\x00\x00\x00\x07\x00\x00\x00\x03\x91HZ'
     assert DubboResponse(1, DubboResponse.OK, new_object('com.xxxxxxxxxxxx.yyyy.api.Zzzzz', fieldAaaaaa=True, fieldBbbbbb=True, fieldCc='710b918c-e686-4268-917d-06a540e23564', fieldDddd='hello'), None).encode() == b'\xda\xbb\x02\x14\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00|\x91C\x1fcom.xxxxxxxxxxxx.yyyy.api.Zzzzz\x94\x0bfieldAaaaaa\x0bfieldBbbbbb\x07fieldCc\tfieldDddd`TT0$710b918c-e686-4268-917d-06a540e23564\x05hello'
+    assert DubboResponse(1, DubboResponse.OK, new_object('com.xxxxxxxxxxxx.wwww.api.Zzzzz', fieldAaaaaa=True, fieldBbbbbb=True, fieldCc='710b918c-e686-4268-917d-06a540e23564', fieldDddd='hello'), None).encode() == b'\xda\xbb\x02\x14\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00|\x91C\x1fcom.xxxxxxxxxxxx.wwww.api.Zzzzz\x94\x0bfieldAaaaaa\x0bfieldBbbbbb\x07fieldCc\tfieldDddd`TT0$710b918c-e686-4268-917d-06a540e23564\x05hello'
 
 
 def test_new_object():

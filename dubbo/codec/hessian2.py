@@ -757,8 +757,8 @@ class DubboResponse(object):
     def _get_body(self):
         if self.error is None:
             status_byte = self.data is None and int_to_bytes(2 + 0x90) or int_to_bytes(1 + 0x90)
-            return status_byte + encode_object(self.data)
-        return encode_object(self.error)
+            return status_byte + encode_object(self.data, 0, [])
+        return encode_object(self.error, 0, [])
 
     def __repr__(self):
         return f'id: {self.id}, status: {self.status}, data: {self.data}, error: {self.error}'
