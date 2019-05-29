@@ -21,7 +21,7 @@ class _MockKazooClient(object):
     def start(self):
         pass
 
-    def create(self, path):
+    def ensure_path(self, path):
         if path in _paths:
             raise NodeExistsError
         _paths.append(path)
@@ -41,11 +41,11 @@ def test_dubbo_register():
     assert _paths == []
     service.add_method('a.service', 'doGet', 'void')
     service.register('zk-1.test.corp:2181')
-    assert _paths == ['/dubbo', '/dubbo/a.service', '/dubbo/a.service/providers', '/dubbo/a.service/providers/dubbo%3A%2F%2F10.0.1.120%3A12345%2Fa.service%3Fanyhost%3Dtrue%26application%3Dunit-test%26dubbo%3D2.5.3%26interface%3Da.service%26methods%3DdoGet%26pid%3D1%26revision%3D1.0.0%26side%3Dprovider%26timestamp%3D1234567890%26version%3D1.0.0']
+    assert _paths == ['/dubbo/a.service/providers/dubbo%3A%2F%2F10.0.1.120%3A12345%2Fa.service%3Fanyhost%3Dtrue%26application%3Dunit-test%26dubbo%3D2.5.3%26interface%3Da.service%26methods%3DdoGet%26pid%3D1%26revision%3D1.0.0%26side%3Dprovider%26timestamp%3D1234567890%26version%3D1.0.0']
 
     _paths.clear()
     service.register('zk-1.test.corp:2181', '1.1')
-    assert _paths == ['/dubbo', '/dubbo/a.service', '/dubbo/a.service/providers', '/dubbo/a.service/providers/dubbo%3A%2F%2F10.0.1.120%3A12345%2Fa.service%3Fanyhost%3Dtrue%26application%3Dunit-test%26dubbo%3D2.5.3%26interface%3Da.service%26methods%3DdoGet%26pid%3D2%26revision%3D1.0.0%26side%3Dprovider%26timestamp%3D1234567890%26version%3D1.1']
+    assert _paths == ['/dubbo/a.service/providers/dubbo%3A%2F%2F10.0.1.120%3A12345%2Fa.service%3Fanyhost%3Dtrue%26application%3Dunit-test%26dubbo%3D2.5.3%26interface%3Da.service%26methods%3DdoGet%26pid%3D2%26revision%3D1.0.0%26side%3Dprovider%26timestamp%3D1234567890%26version%3D1.1']
 
 
 def test_dubbo_handler():

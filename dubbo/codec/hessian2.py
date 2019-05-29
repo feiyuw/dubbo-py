@@ -521,9 +521,9 @@ def encode_object(field, idx=0, cls_names=[]):
     elif isinstance(field, str):
         # TODO: field convert required? see Hessian2Output.java -> printString
         length = len(field)
-        if length < _STRING_DIRECT_MAX:
+        if length <= _STRING_DIRECT_MAX:
             return int_to_bytes(length) + field.encode()
-        elif length < _STRING_SHORT_MAX:
+        elif length <= _STRING_SHORT_MAX:
             return int_to_bytes((_BC_STRING_SHORT << 8) + length) + field.encode()
         return b'S' + int_to_bytes(length) + field.encode()
     elif isinstance(field, dict):
