@@ -32,8 +32,12 @@ from dubbo.client import DubboClient
 
 client = DubboClient('127.0.0.1', 12358)
 resp = client.send_request_and_return_response(service_name='com.myservice.math', method_name='max', args=[[1, 2, 3, 4]])
+print(resp.ok)   # True
 print(resp.data)  # 4
+print(resp.error)  # None
 
 resp = client.send_request_and_return_response(service_name='com.myservice.math', method_name='divide', args=[1, 0])
+print(resp.ok)   # False
+print(resp.data)  # None
 print(resp.error)  # division by zero
 ```
