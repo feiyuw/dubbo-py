@@ -529,8 +529,8 @@ def encode_object(field, idx=0, cls_names=[]):
     elif isinstance(field, dict):
         result = b'H'
         for k, v in field.items():
-            result += encode_object(k)
-            result += encode_object(v)
+            result += encode_object(k, cls_names=[])
+            result += encode_object(v, cls_names=[])
         result += b'Z'
         return result
     elif isinstance(field, (list, set)):
@@ -549,7 +549,7 @@ def encode_object(field, idx=0, cls_names=[]):
             else:
                 result += b'\x58'
             result += encode_object(len(field))
-        result += b''.join(encode_object(e) for e in field)
+        result += b''.join(encode_object(e, cls_names=[]) for e in field)
         return result
     elif isinstance(field, long):
         if -0x08 <= field and field <= 0x0f:
