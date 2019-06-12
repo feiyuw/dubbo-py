@@ -1,7 +1,4 @@
-import os
 from setuptools import setup
-
-CURDIR = os.path.abspath(os.path.dirname(__file__))
 
 
 setup(
