@@ -2,6 +2,12 @@
 
 [![Build Status](https://travis-ci.org/feiyuw/dubbo-py.svg?branch=master)](https://travis-ci.org/feiyuw/dubbo-py)
 
+## Install
+
+```sh
+pip3 install dubbo-py
+```
+
 ## Example
 
 ```python
