@@ -56,6 +56,15 @@ from dubbo.client import DubboClient
 
 client = DubboClient('127.0.0.1', 12358)
 # 构造一个Java Object为com.demo.test的参数
-arg = new_object('com.demo.test', uuid='1b7530ba-2afa-4e7f-9876-c6744831c3fd', id=10, key='helloEvt', param={'name': 'hello', 'value': 'world'}, doit=True)
-resp = client.send_request_and_return_response(service_name='com.myservice.complex', method_name='aggr', args=[arg])
+arg = new_object(
+    'com.demo.test',
+    uuid='1b7530ba-2afa-4e7f-9876-c6744831c3fd',
+    id=10,
+    key='helloEvt',
+    param={'name': 'hello', 'value': 'world'},
+    doit=True)
+resp = client.send_request_and_return_response(
+    service_name='com.myservice.complex',
+    method_name='aggr',
+    args=[arg])
 ```
