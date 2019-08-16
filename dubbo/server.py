@@ -7,7 +7,7 @@ from threading import Thread
 from urllib.parse import quote_plus
 from kazoo.client import KazooClient
 from socketserver import ThreadingTCPServer, BaseRequestHandler
-from .utils import get_pub_ip, get_timestamp, iter_directory
+from .utils import get_pub_ip, get_timestamp
 from .codec.hessian2 import Decoder, DubboHeartBeatRequest, DubboHeartBeatResponse, DubboResponse
 from .errors import DubboError
 
