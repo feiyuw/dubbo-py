@@ -6,7 +6,7 @@ from io import BytesIO
 from collections import namedtuple
 from ..utils import int_to_bytes, bytes_to_int, bytes_to_long, double_to_bytes, \
     bytes_to_double, timestamp_to_datetime, long_to_bytes
-from ..java_class import JavaList
+from ..java_class import JavaList, java_typed_data_to_python
 
 
 _DUBBO_MAGIC = b'\xda\xbb'
@@ -117,6 +117,10 @@ class Decoder(object):
             args.append(self._read_object())
         # parse attachment
         attachment = self._read_object()
+        # handle generic type request
+        if attachment.get('generic') == 'true':
+            method_name = args[0].encode()
+            args = [java_typed_data_to_python(type_, data) for (type_, data) in zip(*args[1:])]
         return DubboRequest(id=id_, twoway=self._twoway, dubbo_version=dubbo_version, service_name=service_name, service_version=service_version, method_name=method_name, args=args, attachment=attachment)
 
     def _decode_response_body(self, id_, status):

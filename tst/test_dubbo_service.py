@@ -54,6 +54,9 @@ def test_dubbo_handler():
     def _multi_2_handler(num):
         return num * 2
 
+    def _add_handler(a, b):
+        return a + b
+
     def _exp_handler(num):
         return num ** 2
 
@@ -63,6 +66,7 @@ def test_dubbo_handler():
         return a / b
 
     service.add_method('calc', 'multi2', _multi_2_handler)
+    service.add_method('calc', 'add', _add_handler)
     service.add_method('calc', 'exp', _exp_handler)
     service.add_method('calc', 'divide', _divide_handler)
     service.start()
@@ -70,6 +74,7 @@ def test_dubbo_handler():
     assert client.send_request_and_return_response(service_name='calc', method_name='exp', service_version='1.0', args=[4], attachment={}).data == 16
     assert client.send_request_and_return_response(service_name='calc', method_name='multi2', service_version='1.0', args=[4], attachment={}).data == 8
     assert client.send_request_and_return_response(service_name='calc', method_name='divide', args=[3, 2]).data == 1.5
+    assert client.send_request_and_return_response(service_name='calc', method_name='$invoke', args=['add', ['int', 'int'], [3, 2]], attachment={'generic': 'true'}).data == 5
     error_resp = client.send_request_and_return_response(service_name='calc', method_name='divide', args=[3, 0])
     assert error_resp.status == 40
     assert error_resp.data is None

@@ -129,3 +129,13 @@ def test_new_object():
 def test_heartbeat_encode():
     assert DubboHeartBeatResponse(570, None, False).encode() == b'\xda\xbb\x22\x00\x00\x00\x00\x00\x00\x00\x02\x3a\x00\x00\x00\x01\x4e'
     assert DubboHeartBeatRequest(570, None, True).encode() == b'\xda\xbb\xe2\x00\x00\x00\x00\x00\x00\x00\x02\x3a\x00\x00\x00\x01\x4e'
+
+
+def test_generic_request_decode():
+    data = b'\xda\xbb\xc2\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xab\x052.0.2\x04calc\x051.0.0\x07$invoke08Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/Object;\x03addr\x07[string\x03int\x03intr\x07[object\x011\x012H\x04path\x04calc\tinterface\x04calc\x07version\x051.0.0\x07generic\x04trueZ'
+    msg = Decoder(BytesIO(data)).decode()
+    assert msg.dubbo_version == b'2.0.2'
+    assert msg.service_name == b'calc'
+    assert msg.attachment['generic'] == 'true'
+    assert msg.method_name == b'add'
+    assert msg.args == [1, 2]

@@ -6,6 +6,10 @@ def _multi_2_handler(num):
     return num * 2
 
 
+def _add_handler(a, b):
+    return a + b
+
+
 def _exp_handler(num):
     return num ** 2
 
@@ -13,6 +17,7 @@ def _exp_handler(num):
 if __name__ == '__main__':
     service = DubboService(12358, 'demo')
     service.add_method('calc', 'multi2', _multi_2_handler)
+    service.add_method('calc', 'add', _add_handler)
     service.add_method('calc', 'exp', _exp_handler)
     service.register('127.0.0.1:2181')  # register to zookeeper
     service.start()  # service run in a daemon thread
