@@ -32,12 +32,13 @@ class DubboService(object):
         self._services = {}  # {'service-1': {method1: handler-1, method2: handler-2}}
         self._server = _ServerThread(_DubboServer(('0.0.0.0', self._port), _get_dubbo_request_handler(self._services)))
 
-    def register(self, zk, version='1.0.0', revision='1.0.0'):
+    def register(self, zk, version='1.0.0', revision='1.0.0', group=None):
         client = KazooClient(zk)
         client.start()
+        grp_field = group and f'group={group}' or ''
         for service, methods in self._services.items():
             logging.info(f'register service "{service}", methods "{methods}" to zookeeper "{zk}"')
-            url = f'dubbo://{self._host}:{self._port}/{service}?anyhost=true&application={self._app}&dubbo={self._dubbo_version}&interface={service}&methods={",".join(methods)}&pid={next(_pid_gen)}&revision={revision}&side=provider&timestamp={get_timestamp()}&version={version}'
+            url = f'dubbo://{self._host}:{self._port}/{service}?anyhost=true&application={self._app}&dubbo={self._dubbo_version}{grp_field}&interface={service}&methods={",".join(methods)}&pid={next(_pid_gen)}&revision={revision}&side=provider&timestamp={get_timestamp()}&version={version}'
             client.ensure_path(f'/dubbo/{service}/providers/{quote_plus(url)}')
 
     def start(self):
