@@ -118,7 +118,7 @@ class Decoder(object):
         # parse attachment
         attachment = self._read_object()
         # handle generic type request
-        if attachment.get('generic') == 'true':
+        if attachment.get('generic') in ('true', True):
             method_name = args[0].encode()
             args = [java_typed_data_to_python(type_, data) for (type_, data) in zip(*args[1:])]
         return DubboRequest(id=id_, twoway=self._twoway, dubbo_version=dubbo_version, service_name=service_name, service_version=service_version, method_name=method_name, args=args, attachment=attachment)
