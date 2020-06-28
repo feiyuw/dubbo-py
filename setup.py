@@ -3,7 +3,7 @@ from setuptools import setup
 
 setup(
     name='dubbo-py',
-    version='0.2',
+    version='0.2.1',
     description='dubbo adaptor for python',
     author='Zhang Yu',
     author_email='feiyuw@gmail.com',
