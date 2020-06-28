@@ -3,7 +3,7 @@ from setuptools import setup
 
 setup(
     name='dubbo-py',
-    version='0.2.1',
+    version='0.2.2',
     description='dubbo adaptor for python',
     long_description='''`dubbo-py` 是一个用Python3进行dubbo协议编解码和service、client模拟的Library，开发它的目的是用于对现有dubbo服务进行功能自动化测试，包括模拟dubbo的provider和consumer。
 
