@@ -8,9 +8,12 @@ JavaString = type('java.lang.String', (str, ), {})
 _type_handlers = {
     'boolean': bool,
     'short': int,
+    'byte': int,
     'int': int,
+    'long': long,
     'float': float,
     'double': float,
+    'char': str,
     'java.lang.String': str,
     'java.lang.Long': long,
     'java.lang.Float': float,
