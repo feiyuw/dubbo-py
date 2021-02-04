@@ -33,6 +33,7 @@ class DubboService(object):
         self._server = _ServerThread(_DubboServer(('0.0.0.0', self._port), _get_dubbo_request_handler(self._services)))
 
     def register(self, zk, version='1.0.0', revision='1.0.0', group=None):
+        # TODO: 1. multiple zk support, 2. zk connection state event handling
         client = KazooClient(zk)
         client.start()
         grp_field = group and f'group={group}' or ''

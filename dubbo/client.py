@@ -14,6 +14,7 @@ class DubboClient(object):
     _timeout = 5  # recv timeout set to 5sec
 
     def __init__(self, host, port, dubbo_version='2.5.3'):
+        # TODO: 1. zk connection support, 2. zk connection state event handling
         self._host = host
         self._port = port
         self._dubbo_version = dubbo_version
