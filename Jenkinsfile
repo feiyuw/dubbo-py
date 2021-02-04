@@ -1,11 +1,12 @@
 pipeline {
     agent {
-        docker { image 'python:3.6' }
+        docker {
+            image 'registry.cn-hangzhou.aliyuncs.com/alpd/python:3.9.1'
+        }
     }
     stages {
         stage('Test') {
             steps {
-                sh 'echo $USER; echo $PWD; ls; pip install pytest'
                 sh 'python setup.py install'
                 sh 'pytest -s ./tst'
             }
