@@ -5,7 +5,7 @@ pipeline {
     stages {
         stage('Test') {
             steps {
-                sh 'pip install pytest'
+                sh 'echo $USER; echo $PWD; ls; pip install pytest'
                 sh 'python setup.py install'
                 sh 'pytest -s ./tst'
             }
