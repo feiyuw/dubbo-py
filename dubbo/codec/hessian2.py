@@ -126,11 +126,14 @@ class Decoder(object):
     def _decode_response_body(self, id_, status):
         data, error = None, None
         if status == DubboResponse.OK:
-            status_code = self._read_int()  # TODO: see DecodeableRpcResult.java decode
-            if status_code == 1:
-                data = self._read_object()
-            elif status_code == 0:  # XXX: it should be error, need confirm
-                data = self._read_object()
+            self._read_int()  # TODO: see DecodeableRpcResult.java decode
+            data = self._read_object()
+            # a real dubbo service appends an attachments map after the result,
+            # consume it to avoid leftover "undecoded" bytes
+            try:
+                self._read_object()
+            except Exception:
+                pass
         else:
             error = self._read_object()
         return DubboResponse(id_, status, data, error)
