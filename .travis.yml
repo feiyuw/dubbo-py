@@ -1,8 +1,11 @@
 language: python
 python:
-  - "3.6"
+  - "3.10"
+  - "3.11"
+  - "3.12"
+  - "3.13"
 install:
   - pip install pytest
-  - python setup.py install
+  - pip install -e .
 script:
   - pytest -s ./tst
