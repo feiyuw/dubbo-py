@@ -4,6 +4,7 @@
 按 TDD：先写测试（RED），再实现（GREEN）。
 '''
 import struct
+import logging
 import pytest
 from datetime import datetime
 from io import BytesIO
@@ -67,6 +68,26 @@ def test_response_error_encode_with_exception_flag():
     assert out.status == DubboResponse.OK
     assert out.data is None
     assert out.error == 'boom'
+
+
+def test_response_with_attachments_map_no_undecoded(caplog):
+    # #9: Java 2.7+ RpcResult 在 value 后附加 attachments map，必须消费避免 undecoded
+    body = b'\x91' + encode_object('hello') + encode_object({'dubbo': '2.0.2'})
+    frame = _frame(0x02, 20, body)
+    with caplog.at_level(logging.WARNING):
+        resp = Decoder(BytesIO(frame)).decode()
+    assert resp.data == 'hello'
+    assert 'undecoded' not in caplog.text
+
+
+def test_response_exception_with_attachments_map_no_undecoded(caplog):
+    # #9: 异常响应同样在 exception 后附加 attachments map
+    body = b'\x90' + encode_object('division by zero') + encode_object({'dubbo': '2.0.2'})
+    frame = _frame(0x02, 20, body)
+    with caplog.at_level(logging.WARNING):
+        resp = Decoder(BytesIO(frame)).decode()
+    assert resp.error == 'division by zero'
+    assert 'undecoded' not in caplog.text
 
 
 # ---------------------------------------------------------------------------

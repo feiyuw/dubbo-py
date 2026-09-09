@@ -159,6 +159,12 @@ class Decoder(object):
         else:
             # 帧头 status != OK 时，body 直接是序列化的错误消息
             error = self._read_object()
+        # #9: Java 2.7+ RpcResult 在 value/exception 后附加 attachments map；
+        # 老版本/我们自身 encode 无此字段，有剩余才读，避免 undecoded
+        pos = self._stream.tell()
+        if self._stream.read(1):
+            self._stream.seek(pos)
+            self._read_object()  # attachments map
         return DubboResponse(id_, status, data, error)
 
     def _read_bytes(self):
