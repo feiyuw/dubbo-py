@@ -110,12 +110,12 @@ class Decoder(object):
                 return self._decode_response_body(invoke_id, status)
         except Exception:
             self._stream.seek(0)
-            logging.warn('Unable to decode message "%s"' % self._stream.read())
+            logging.warning('Unable to decode message "%s"' % self._stream.read())
             raise
         finally:
             left_bytes = self._stream.read()
             if left_bytes:
-                logging.warn('bytes "%s" undecoded!' % binascii.hexlify(left_bytes))
+                logging.warning('bytes "%s" undecoded!' % binascii.hexlify(left_bytes))
             self._stream.close()
 
     def _decode_heartbeat_request(self, id_):
