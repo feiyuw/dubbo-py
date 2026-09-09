@@ -79,7 +79,7 @@ resp = client.send_request_and_return_response(
     author='Zhang Yu',
     author_email='feiyuw@gmail.com',
     url='https://github.com/feiyuw/dubbo-py.git',
-    python_requires='>=3.5',
+    python_requires='>=3.10',
     install_requires=['kazoo'],
     packages=[
         'dubbo',
