@@ -322,6 +322,20 @@ def test_decode_typed_map_java_map_stays_dict():
 # H11: 编码侧复用类定义与值引用
 # ---------------------------------------------------------------------------
 
+def test_long_string_many_chunks_roundtrip():
+    # 回归：分块长度字段未定长 2 字节，末块 <256 时被短缩导致协议破坏
+    for n in (131071, 1 << 20):
+        s = u'x' * n
+        assert _decode(encode_object(s)) == s
+
+
+def test_encode_binary_final_chunk_short_length():
+    # 回归：binary 末块长度 <256 时长度字段仍须占 2 字节
+    for n in (8192 + 200, 8200):
+        data = b'\x2a' * n
+        assert _decode(encode_object(data)) == data
+
+
 def test_encode_reuses_class_definition():
     a = new_object('com.demo.Car', color='red', model='x')
     b = new_object('com.demo.Car', color='green', model='y')

@@ -604,7 +604,7 @@ def _encode_string(s):
     chunks = _string_chunks(s, _STRING_CHUNK_UNITS)
     for i, chunk in enumerate(chunks):
         tag = b'S' if i == len(chunks) - 1 else b'R'  # 终块 S / 非终块 R
-        result += tag + int_to_bytes(_utf16_units(chunk)) + _cesu8_encode(chunk)
+        result += tag + int_to_bytes(_utf16_units(chunk), 2) + _cesu8_encode(chunk)
     return result
 
 
@@ -663,7 +663,7 @@ def _encode_binary(data):
     for i in range(0, length, _BINARY_CHUNK_SIZE):
         chunk = data[i:i + _BINARY_CHUNK_SIZE]
         tag = b'B' if i + len(chunk) >= length else b'A'
-        result += tag + int_to_bytes(len(chunk)) + chunk
+        result += tag + int_to_bytes(len(chunk), 2) + chunk
     return result
 
 
