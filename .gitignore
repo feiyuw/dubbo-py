@@ -14,3 +14,6 @@ dubbo_py.egg-info
 
 # java-interop 编译产物
 java-interop/target/
+
+# maven shade 生成物
+dependency-reduced-pom.xml
