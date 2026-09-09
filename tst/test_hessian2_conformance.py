@@ -118,6 +118,15 @@ def test_bytes_is_not_encoded_as_string():
     assert encode_object(b'\x00\x01') != b'\x02\x00\x01'
 
 
+def test_emoji_string_roundtrip_cesu8():
+    # 非 BMP 字符按 CESU-8（代理对各 3 字节）编码，与 Java Hessian2Output 对齐
+    # 向量取自真实 Java 序列化输出（java-interop 对端）
+    assert encode_object('😀') == b'\x02\xed\xa0\xbd\xed\xb8\x80'
+    assert _decode(bytes.fromhex('02eda0bdedb880')) == '😀'
+    assert _decode(encode_object('😀')) == '😀'
+    assert _decode(encode_object('a😀b')) == 'a😀b'
+
+
 def test_response_status_constants():
     assert DubboResponse.OK == 20
     assert DubboResponse.CLIENT_TIMEOUT == 30

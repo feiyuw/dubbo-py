@@ -231,7 +231,7 @@ class Decoder(object):
         elif tag == _BYTE_DATE_MINUTE:
             return timestamp_to_datetime(bytes_to_int(self._read(4)) * 60)
         elif tag in (_BS_STRING, _BS_STRING_TRUNK) or tag in _ZERO_BYTE or 0x30 <= tag <= 0x33:
-            return self._read_string_bytes(tag).decode('utf-8', errors='surrogatepass')
+            return _cesu8_decode(self._read_string_bytes(tag))
         elif tag in (ord(b'b'), ord(b'B'),) or tag in range(0x20, 0x2f + 1) or tag in range(0x34, 0x37 + 1):
             return self._read_binary(tag)
         elif tag == 0x55:  # variable length list typed
@@ -364,7 +364,7 @@ class Decoder(object):
         ''' 读取类型引用：字符串形式入类型表，int 形式按下标查类型表（H7） '''
         tag = ord(self._read(1))
         if tag in (_BS_STRING, _BS_STRING_TRUNK) or tag in _ZERO_BYTE or 0x30 <= tag <= 0x33:
-            type_ = self._read_string_bytes(tag).decode('utf-8', errors='surrogatepass')
+            type_ = _cesu8_decode(self._read_string_bytes(tag))
             self._types.append(type_)
             return type_
         idx = self._read_int(tag)
@@ -546,6 +546,36 @@ def _utf16_units(s):
     return len(s.encode('utf-16-be', errors='surrogatepass')) // 2
 
 
+def _cesu8_encode(s):
+    ''' 编码为 CESU-8：代理对各 3 字节，对齐 Java Hessian2Output.printString '''
+    out = bytearray()
+    for ch in s:
+        cp = ord(ch)
+        if cp < 0x80:
+            out.append(cp)
+        elif cp < 0x800:
+            out += bytes((0xc0 | (cp >> 6), 0x80 | (cp & 0x3f)))
+        elif cp < 0x10000:
+            out += bytes((0xe0 | (cp >> 12), 0x80 | ((cp >> 6) & 0x3f), 0x80 | (cp & 0x3f)))
+        else:
+            # 非 BMP：拆成高低两个代理，各 3 字节
+            c = cp - 0x10000
+            hi = 0xd800 | (c >> 10)
+            lo = 0xdc00 | (c & 0x3ff)
+            out += bytes((0xe0 | (hi >> 12), 0x80 | ((hi >> 6) & 0x3f), 0x80 | (hi & 0x3f)))
+            out += bytes((0xe0 | (lo >> 12), 0x80 | ((lo >> 6) & 0x3f), 0x80 | (lo & 0x3f)))
+    return bytes(out)
+
+
+def _cesu8_decode(b):
+    ''' CESU-8 → Python str，合并合法代理对；非法代理忠实返回 '''
+    s = b.decode('utf-8', errors='surrogatepass')
+    try:
+        return s.encode('utf-16-be', errors='surrogatepass').decode('utf-16-be')
+    except UnicodeDecodeError:
+        return s
+
+
 def _string_chunks(s, max_units):
     ''' 按码点切块，保证不切断代理对 '''
     chunks = []
@@ -566,14 +596,14 @@ def _encode_string(s):
     ''' 编码字符串：短串用直接/短形式，长串按 64K(UTF-16 单元) 分块（H1） '''
     units = _utf16_units(s)
     if units <= _STRING_DIRECT_MAX:
-        return int_to_bytes(units) + s.encode('utf-8', errors='surrogatepass')
+        return int_to_bytes(units) + _cesu8_encode(s)
     elif units <= _STRING_SHORT_MAX:
-        return int_to_bytes((_BC_STRING_SHORT << 8) + units) + s.encode('utf-8', errors='surrogatepass')
+        return int_to_bytes((_BC_STRING_SHORT << 8) + units) + _cesu8_encode(s)
     result = b''
     chunks = _string_chunks(s, _STRING_CHUNK_UNITS)
     for i, chunk in enumerate(chunks):
         tag = b'S' if i == len(chunks) - 1 else b'R'  # 终块 S / 非终块 R
-        result += tag + int_to_bytes(_utf16_units(chunk)) + chunk.encode('utf-8', errors='surrogatepass')
+        result += tag + int_to_bytes(_utf16_units(chunk)) + _cesu8_encode(chunk)
     return result
 
 
