@@ -1,6 +1,7 @@
 ''' Basic module for Dubbo protocol '''
 import time
 import logging
+import inspect
 import itertools
 import socket
 from threading import Thread
@@ -94,6 +95,31 @@ class _DubboServer(ThreadingTCPServer):
         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
 
 
+def _validate_args(handler, args):
+    ''' A8: 按 handler 签名校验参数个数/类型，返回 (ok, err_msg)。
+    仅校验可内省且为具体类型注解的参数；*args/内省失败则跳过。 '''
+    try:
+        sig = inspect.signature(handler)
+    except (TypeError, ValueError):
+        return True, None  # 内省失败（builtin 等），跳过校验
+    params = [p for p in sig.parameters.values()
+              if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)]
+    if any(p.kind == inspect.Parameter.VAR_POSITIONAL for p in sig.parameters.values()):
+        return True, None  # 变长参数 handler：任意个数
+    required = sum(1 for p in params if p.default is inspect.Parameter.empty)
+    total = len(params)
+    if not (required <= len(args) <= total):
+        expected = str(required) if required == total else f'{required}~{total}'
+        return False, f'参数个数不符：期望 {expected} 个，实际 {len(args)} 个'
+    for i, (p, arg) in enumerate(zip(params, args)):
+        ann = p.annotation
+        if ann is inspect.Parameter.empty or not isinstance(ann, type):
+            continue  # 无注解或非具体类型（typing 泛型等）跳过类型校验
+        if not isinstance(arg, ann):
+            return False, f'第 {i + 1} 个参数类型不符：期望 {ann.__name__}，实际 {type(arg).__name__}'
+    return True, None
+
+
 def _get_dubbo_request_handler(handler_map):
     class _DubboRequestHandler(BaseRequestHandler):
         def __init__(self, request, client_address, server):
@@ -123,14 +149,18 @@ def _get_dubbo_request_handler(handler_map):
                     if not handler:
                         logging.warning(f'no handler for {msg.service_name}.{msg.method_name}')
                         continue
-                    try:
-                        resp = DubboResponse(msg.id, DubboResponse.OK, handler(*msg.args), None)
-                    except DubboError as err:
-                        resp = DubboResponse(msg.id, err.status, None, err.message)
-                    except EOFError:
-                        raise
-                    except Exception as err:
-                        resp = DubboResponse(msg.id, DubboResponse.UnknownError, None, str(err))
+                    ok, err_msg = _validate_args(handler, msg.args)
+                    if not ok:
+                        resp = DubboResponse(msg.id, DubboResponse.BAD_REQUEST, None, err_msg)
+                    else:
+                        try:
+                            resp = DubboResponse(msg.id, DubboResponse.OK, handler(*msg.args), None)
+                        except DubboError as err:
+                            resp = DubboResponse(msg.id, err.status, None, err.message)
+                        except EOFError:
+                            raise
+                        except Exception as err:
+                            resp = DubboResponse(msg.id, DubboResponse.UnknownError, None, str(err))
                     self.request.sendall(resp.encode())
                 except EOFError:
                     try:

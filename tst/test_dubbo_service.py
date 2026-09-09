@@ -118,3 +118,37 @@ def test_dubbo_handler():
     assert error_resp.status == 40
     assert error_resp.data is None
     assert error_resp.error == 'divide by zero'
+
+
+def test_dubbo_handler_arg_validation():
+    # A8: 按 handler 签名校验参数个数/类型，返回类型化错误而非统一 90
+    service = DubboService(12357, 'unittest')
+
+    def _add_handler(a, b):
+        return a + b
+
+    def _typed_handler(x: int):
+        return x * 2
+
+    service.add_method('calc', 'add', _add_handler)
+    service.add_method('calc', 'typed', _typed_handler)
+    service.start()
+    client = DubboClient('127.0.0.1', 12357)
+    try:
+        # 参数过少 -> BAD_REQUEST(40)
+        resp = client.send_request_and_return_response(service_name='calc', method_name='add', args=[3])
+        assert resp.status == 40
+        assert '参数个数' in resp.error
+        # 参数过多 -> BAD_REQUEST(40)
+        resp = client.send_request_and_return_response(service_name='calc', method_name='add', args=[1, 2, 3])
+        assert resp.status == 40
+        # 正确个数 -> OK
+        assert client.send_request_and_return_response(service_name='calc', method_name='add', args=[3, 2]).data == 5
+        # 类型不符（注解驱动）-> BAD_REQUEST(40)
+        resp = client.send_request_and_return_response(service_name='calc', method_name='typed', args=['zz'])
+        assert resp.status == 40
+        assert '类型' in resp.error
+        # 类型正确 -> OK
+        assert client.send_request_and_return_response(service_name='calc', method_name='typed', args=[21]).data == 42
+    finally:
+        service.stop()
