@@ -24,6 +24,14 @@ class DubboClient(object):
         # A1: 按 invoke_id 分发响应，避免并发/乱序/未知响应串包
         self._pending = {}  # invoke_id -> Queue(maxsize=1)
 
+    @classmethod
+    def from_zk(cls, zk_hosts, service_name, group=None, version='1.0.0', **kwargs):
+        ''' #2: 从 zookeeper 服务发现 provider（按 group/version 路由），再复用直连接口。
+        kwargs 透传 DubboClient 构造参数（如 timeout）。 '''
+        from .registry import discover
+        host, port = discover(zk_hosts, service_name, group=group, version=version)
+        return cls(host, port, **kwargs)
+
     def _ensure_connected(self):
         ''' A2: 惰性连接——首次使用时才建立连接并启动收发/心跳线程 '''
         with self._connect_lock:
