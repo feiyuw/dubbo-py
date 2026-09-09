@@ -91,3 +91,77 @@ def test_client_lazy_connect():
         s.close()
     with pytest.raises(OSError):
         client.send_request_and_return_response(service_name='s', method_name='m', args=[])
+
+
+class _EchoServer(threading.Thread):
+    ''' 收 N 个请求，data 回显 method_name。
+    buffered=True 时收满再（可选乱序）回复；False 则逐条立即回复。 '''
+
+    def __init__(self, n, reverse=False, buffered=True):
+        super().__init__(daemon=True)
+        self._n = n
+        self._reverse = reverse
+        self._buffered = buffered
+        self._srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._srv.bind(('127.0.0.1', 0))
+        self._srv.listen(64)
+        self.port = self._srv.getsockname()[1]
+
+    def run(self):
+        conn, _ = self._srv.accept()
+        try:
+            msgs = []
+            for _ in range(self._n):
+                m = Decoder(conn).decode()
+                if self._buffered:
+                    msgs.append(m)
+                else:
+                    conn.sendall(DubboResponse(m.id, DubboResponse.OK, m.method_name.decode(), None).encode())
+            if self._buffered:
+                if self._reverse:
+                    msgs = list(reversed(msgs))
+                for m in msgs:
+                    conn.sendall(DubboResponse(m.id, DubboResponse.OK, m.method_name.decode(), None).encode())
+        except Exception:
+            pass
+        finally:
+            conn.close()
+            self._srv.close()
+
+
+def test_concurrent_requests_matched_by_id():
+    # T3/A1: N 个并发 in-flight 请求，服务端乱序回复，每个线程拿对响应
+    n = 20
+    srv = _EchoServer(n, reverse=True)
+    srv.start()
+    client = DubboClient('127.0.0.1', srv.port)
+    results = {}
+    errors = []
+
+    def worker(i):
+        try:
+            r = client.send_request_and_return_response(service_name='s', method_name='m%d' % i, args=[i])
+            results[i] = r.data
+        except Exception as e:  # noqa: BLE001
+            errors.append(e)
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(n)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10)
+
+    assert not errors
+    assert results == {i: 'm%d' % i for i in range(n)}
+
+
+def test_long_lived_connection_stability():
+    # T3: 同一连接连续 50 轮请求，引用表/计数不漂移
+    n = 50
+    srv = _EchoServer(n, buffered=False)
+    srv.start()
+    client = DubboClient('127.0.0.1', srv.port)
+    for i in range(n):
+        r = client.send_request_and_return_response(service_name='s', method_name='m%d' % i, args=[i])
+        assert r.data == 'm%d' % i

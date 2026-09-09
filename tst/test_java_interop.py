@@ -95,6 +95,8 @@ def test_java_to_python_date(java_golden):
 def test_java_to_python_bytes(java_golden):
     assert _py_decode(java_golden['bytes_3']) == b'\x01\x02\x03'
     assert _py_decode(java_golden['bytes_300']) == b'\x2a' * 300
+    # T3: 大包 binary（>64K，触发 'b'/'B' 多块分块）
+    assert _py_decode(java_golden['bytes_70000']) == b'\x2a' * 70000
 
 
 def test_java_to_python_list(java_golden):
@@ -137,6 +139,8 @@ _PY_TO_JAVA_CASES = [
     ([0, 1], '[0, 1]'),
     ([0, 1, 2, 3, 4, 5, 6, 7], '[0, 1, 2, 3, 4, 5, 6, 7]'),
     ({'color': 'red'}, '{"color": "red"}'),
+    # T3: 大包 binary（>64K），验证 Java 能解 Python 的 'b'/'B' 分块
+    (b'\x2a' * 70000, 'bytes[' + '2a' * 70000 + ']'),
 ]
 
 

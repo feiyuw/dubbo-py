@@ -88,6 +88,7 @@ public class Interop {
         // 二进制
         fixtures.put("bytes_3", new byte[]{1, 2, 3});
         fixtures.put("bytes_300", repeatBytes(300, (byte) 0x2a));
+        fixtures.put("bytes_70000", repeatBytes(70000, (byte) 0x2a)); // 触发多块 'b'/'B' 分块
 
         // 容器
         List<Integer> l2 = new ArrayList<>(Arrays.asList(0, 1));
