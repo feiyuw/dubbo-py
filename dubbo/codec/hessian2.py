@@ -232,7 +232,7 @@ class Decoder(object):
             return timestamp_to_datetime(bytes_to_int(self._read(4)) * 60)
         elif tag in (_BS_STRING, _BS_STRING_TRUNK) or tag in _ZERO_BYTE or 0x30 <= tag <= 0x33:
             return _cesu8_decode(self._read_string_bytes(tag))
-        elif tag in (ord(b'b'), ord(b'B'),) or tag in range(0x20, 0x2f + 1) or tag in range(0x34, 0x37 + 1):
+        elif tag in (ord(b'A'), ord(b'B'), ord(b'b')) or tag in range(0x20, 0x2f + 1) or tag in range(0x34, 0x37 + 1):
             return self._read_binary(tag)
         elif tag == 0x55:  # variable length list typed
             return self._read_variable_list(typed=True)
@@ -403,10 +403,10 @@ class Decoder(object):
                 raise RuntimeError('read string error: code "%d"' % tag)
 
     def _read_binary(self, tag):
-        ''' 读取二进制数据（可能分块）：'b' 非终块 / 'B' 终块 / 紧凑形式（H4） '''
+        ''' 读取二进制数据（可能分块）：'A'/'B' 分块（Java 参考实现）、兼容 spec 小写 'b'、紧凑形式 '''
         sbuf = b''
         while True:
-            if tag in (ord(b'b'), ord(b'B')):
+            if tag in (ord(b'A'), ord(b'b'), ord(b'B')):
                 chunk_len = bytes_to_int(self._read(2))
                 final = tag == ord(b'B')
             elif tag in range(0x20, 0x2f + 1):
@@ -537,6 +537,7 @@ _STRING_DIRECT_MAX = 0x1f
 _STRING_SHORT_MAX = 0x3ff
 _STRING_CHUNK_UNITS = 0xffff  # 分块长度上限：16-bit 长度字段
 _BC_STRING_SHORT = 0x30
+_BINARY_CHUNK_SIZE = 0x2000  # 8192，对齐 caucho Hessian2Output.writeBytes
 _INT32_MIN = -0x80000000
 _INT32_MAX = 0x7fffffff
 
@@ -650,16 +651,18 @@ def encode_object(field, idx=0, cls_names=None):
 
 
 def _encode_binary(data):
-    ''' 编码二进制：紧凑/短/分块（与 decode 对称，T5） '''
+    ''' 编码二进制：紧凑/短/分块。分块非终块用 'A'(0x41)、终块 'B'(0x42)，对齐 caucho
+    Hessian2Output.writeBytes（spec 文档写的小写 'b' 与参考实现不符，Hessian2Input 实际不认
+    0x62）。块大小 8192 仅为安全上限，Java 按 length 字段读任意合法长度，互通不受影响。 '''
     length = len(data)
     if length <= 0x0f:
         return int_to_bytes(0x20 + length) + data
     elif length <= 0x3ff:
         return int_to_bytes((0x34 << 8) + length) + data
     result = b''
-    for i in range(0, length, 0xffff):
-        chunk = data[i:i + 0xffff]
-        tag = b'B' if i + len(chunk) >= length else b'b'
+    for i in range(0, length, _BINARY_CHUNK_SIZE):
+        chunk = data[i:i + _BINARY_CHUNK_SIZE]
+        tag = b'B' if i + len(chunk) >= length else b'A'
         result += tag + int_to_bytes(len(chunk)) + chunk
     return result
 

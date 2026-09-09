@@ -218,7 +218,9 @@ def test_decode_binary_final_chunk():
 
 
 def test_decode_binary_multi_chunk():
-    # 'b' 非终块 + 'B' 终块
+    # 真实 Java（caucho）用 'A' 非终块 + 'B' 终块（块大小 8192）
+    assert _decode(b'A\x00\x03abc' + b'B\x00\x02de') == b'abcde'
+    # 兼容 spec 文档写的小写 'b'
     assert _decode(b'b\x00\x03abc' + b'B\x00\x02de') == b'abcde'
 
 
