@@ -1,4 +1,5 @@
 from io import BytesIO
+from dubbo import long, double
 from dubbo.codec.hessian2 import Decoder, _desc_to_cls_names, _cls_names_to_desc, encode_object, DubboRequest, DubboResponse, DubboHeartBeatResponse, DubboHeartBeatRequest, new_object
 from dubbo.java_class import JavaList
 

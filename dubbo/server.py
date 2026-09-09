@@ -15,7 +15,6 @@ from .errors import DubboError
 __all__ = ('DubboService', )
 
 
-_DUBBO_CTRL = b'\x01N'  # control charactors like b'\xda\xbb\xe2\x01\xb0\x01Nnull\r\nelapsed: 0 ms.\r\ndubbo>'
 _pid_gen = itertools.count(1)  # process id generator
 
 

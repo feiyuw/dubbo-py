@@ -68,3 +68,7 @@ resp = client.send_request_and_return_response(
     method_name='aggr',
     args=[arg])
 ```
+
+## Reference
+
+* [hessian2 protocol](http://hessian.caucho.com/doc/hessian-serialization.html)

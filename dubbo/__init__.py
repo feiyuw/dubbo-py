@@ -1,10 +1,3 @@
-class long(int):
-    pass
+from .types import long, double  # noqa: F401  (re-export for backward compatibility)
 
-
-class double(float):
-    pass
-
-
-__builtins__['long'] = long  # add long to builtin
-__builtins__['double'] = double  # add double to builtin
+__all__ = ('long', 'double')

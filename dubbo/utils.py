@@ -7,13 +7,13 @@ from functools import reduce
 
 
 def bytes_to_long(bs):
-    ''' convert 8 bytes bs to unsigned long (bigendian) '''
-    return bytes_to_int(bs)
+    ''' convert 8 bytes bs to signed long (bigendian) '''
+    return int.from_bytes(bs, 'big', signed=True)
 
 
 def long_to_bytes(num):
-    ''' convert long to 8 bytes (bigendian) '''
-    return struct.pack('>Q', num)
+    ''' convert long to 8 bytes (bigendian, signed two's complement) '''
+    return struct.pack('>q', num)
 
 
 def byte(num):
