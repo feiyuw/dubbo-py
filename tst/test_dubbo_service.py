@@ -120,6 +120,39 @@ def test_dubbo_handler():
     assert error_resp.error == 'divide by zero'
 
 
+def test_dubbo_generic_invoke_string_type():
+    # #7: Java 泛化调用 $invoke，String 类型参数（issue 原始场景）
+    service = DubboService(12355, 'unittest')
+
+    def _multi_2_handler(num):
+        return num * 2
+
+    service.add_method('calc', 'multi2', _multi_2_handler)
+    service.start()
+    client = DubboClient('127.0.0.1', 12355)
+    try:
+        resp = client.send_request_and_return_response(
+            service_name='calc', method_name='$invoke',
+            args=['multi2', ['java.lang.String'], ['2']],
+            attachment={'generic': 'true'})
+        assert resp.data == '22'
+    finally:
+        service.stop()
+
+
+def test_dubbo_echo_service():
+    # #10: dubbo 标准 EchoService，$echo 方法无需注册 handler，原样返回参数
+    service = DubboService(12356, 'unittest')
+    service.start()
+    client = DubboClient('127.0.0.1', 12356)
+    try:
+        resp = client.send_request_and_return_response(service_name='any.service', method_name='$echo', args=['hello'])
+        assert resp.status == 20
+        assert resp.data == 'hello'
+    finally:
+        service.stop()
+
+
 def test_dubbo_handler_arg_validation():
     # A8: 按 handler 签名校验参数个数/类型，返回类型化错误而非统一 90
     service = DubboService(12357, 'unittest')

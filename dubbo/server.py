@@ -141,6 +141,11 @@ def _get_dubbo_request_handler(handler_map):
                         continue
 
                     handler = handler_map.get(msg.service_name.decode(), {}).get(msg.method_name.decode())
+                    # #10: dubbo 标准 EchoService —— $echo 无需注册，原样返回下一个参数
+                    if msg.method_name.decode() == '$echo':
+                        resp = DubboResponse(msg.id, DubboResponse.OK, msg.args[0] if msg.args else None, None)
+                        self.request.sendall(resp.encode())
+                        continue
                     if isinstance(handler, str):  # base string
                         if hasattr(self, '_' + handler):
                             handler = getattr(self, '_' + handler)
