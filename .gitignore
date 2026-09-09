@@ -11,3 +11,6 @@ dubbo_py.egg-info
 .DS_Store
 .pytest_cache/
 .mypy_cache/
+
+# java-interop 编译产物
+java-interop/target/
