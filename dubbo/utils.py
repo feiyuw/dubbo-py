@@ -2,7 +2,7 @@ import time
 import socket
 import struct
 import hashlib
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import reduce
 
 
@@ -56,9 +56,12 @@ def bytes_to_double(bs):
 
 
 def timestamp_to_datetime(ts):
+    ''' hessian date 是 UTC 毫秒；统一转 naive UTC，保证 encode/decode 对称 '''
     if ts < 10e11:
-        return datetime.fromtimestamp(ts)
-    return datetime.fromtimestamp(ts / 1000)
+        ts_sec = ts
+    else:
+        ts_sec = ts / 1000
+    return datetime.fromtimestamp(ts_sec, tz=timezone.utc).replace(tzinfo=None)
 
 
 def get_pub_ip():

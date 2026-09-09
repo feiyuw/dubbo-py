@@ -4,6 +4,7 @@ import logging
 import binascii
 from io import BytesIO
 from collections import namedtuple
+from datetime import datetime
 from ..utils import int_to_bytes, bytes_to_int, bytes_to_long, double_to_bytes, \
     bytes_to_double, timestamp_to_datetime, long_to_bytes
 from ..java_class import JavaList, java_typed_data_to_python
@@ -618,6 +619,28 @@ def encode_object(field, idx=0, cls_names=None):
     return _encode_object(field, idx, state)
 
 
+def _encode_binary(data):
+    ''' 编码二进制：紧凑/短/分块（与 decode 对称，T5） '''
+    length = len(data)
+    if length <= 0x0f:
+        return int_to_bytes(0x20 + length) + data
+    elif length <= 0x3ff:
+        return int_to_bytes((0x34 << 8) + length) + data
+    result = b''
+    for i in range(0, length, 0xffff):
+        chunk = data[i:i + 0xffff]
+        tag = b'B' if i + len(chunk) >= length else b'b'
+        result += tag + int_to_bytes(len(chunk)) + chunk
+    return result
+
+
+def _encode_date(dt):
+    ''' 编码 datetime：x4a + 8 字节 UTC 毫秒（与 decode 0x4a/0x4b 对称，T5） '''
+    import calendar
+    millis = int(calendar.timegm(dt.utctimetuple()) * 1000 + dt.microsecond / 1000)
+    return chr(_BYTE_DATE).encode() + long_to_bytes(millis)
+
+
 def _encode_object(field, idx, state):
     if field is None:
         return b'N'
@@ -627,6 +650,10 @@ def _encode_object(field, idx, state):
         return b'F'
     elif isinstance(field, str):
         return _encode_string(field)
+    elif isinstance(field, bytes):
+        return _encode_binary(field)
+    elif isinstance(field, datetime):
+        return _encode_date(field)
     elif isinstance(field, dict):
         ref = _take_ref(field, state)
         if ref is not None:

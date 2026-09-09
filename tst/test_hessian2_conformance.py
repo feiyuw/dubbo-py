@@ -5,6 +5,7 @@
 '''
 import struct
 import pytest
+from datetime import datetime
 from io import BytesIO
 
 from dubbo import long
@@ -69,8 +70,53 @@ def test_response_error_encode_with_exception_flag():
 
 
 # ---------------------------------------------------------------------------
-# F4: 响应状态码常量
+# T5: 类型映射补全 —— bytes -> binary、datetime -> date 的 encode（与原 decode 对称）
 # ---------------------------------------------------------------------------
+
+def test_encode_binary_short_direct():
+    assert encode_object(b'\x01\x02\x03') == b'\x23\x01\x02\x03'
+    assert encode_object(b'') == b'\x20'
+    assert encode_object(b'abc') == b'\x23abc'
+
+
+def test_encode_binary_medium_uses_compact():
+    data = b'x' * 300
+    enc = encode_object(data)
+    assert enc[0:1] == b'\x35'  # [x34-x37] 短形式
+    assert _decode(enc) == data
+
+
+def test_encode_binary_large_uses_B():
+    data = b'x' * 4096
+    enc = encode_object(data)
+    assert enc[0:1] == b'B'
+    assert enc[1:3] == struct.pack('>H', 4096)
+    assert _decode(enc) == data
+
+
+def test_binary_roundtrip_various_sizes():
+    for n in (1, 15, 16, 300, 1023, 1024, 4096, 70000):
+        data = bytes(range(256)) * (n // 256 + 1)
+        data = data[:n]
+        assert _decode(encode_object(data)) == data
+
+
+def test_datetime_encode_uses_x4a_and_roundtrips():
+    dt = datetime(2018, 7, 30, 14, 41, 4)  # 以 UTC 毫秒编码
+    enc = encode_object(dt)
+    assert enc[0:1] == b'J'  # 0x4a
+    assert _decode(enc) == dt
+
+
+def test_datetime_minute_form_decode():
+    # x4b：4 字节分钟数（2018-07-30 14:46 UTC）
+    assert _decode(b'K\x01\x85\xda6') == datetime(2018, 7, 30, 14, 46)
+
+
+def test_bytes_is_not_encoded_as_string():
+    # 回归：bytes 不能落入 str 分支（旧行为是报 unknown field）
+    assert encode_object(b'\x00\x01') != b'\x02\x00\x01'
+
 
 def test_response_status_constants():
     assert DubboResponse.OK == 20
