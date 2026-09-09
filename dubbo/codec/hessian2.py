@@ -7,6 +7,7 @@ from collections import namedtuple
 from ..utils import int_to_bytes, bytes_to_int, bytes_to_long, double_to_bytes, \
     bytes_to_double, timestamp_to_datetime, long_to_bytes
 from ..java_class import JavaList, java_typed_data_to_python
+from ..types import long, double
 
 
 _DUBBO_MAGIC = b'\xda\xbb'
@@ -54,11 +55,26 @@ _SERIALIZATION_MASK = 0x1f
 _HESSIAN2_SERIALIZATION_ID = 0x02
 
 
+_MAP_TYPES = frozenset([
+    'java.util.Map', 'java.util.HashMap', 'java.util.LinkedHashMap',
+    'java.util.TreeMap', 'java.util.SortedMap', 'java.util.NavigableMap',
+    'java.util.Hashtable', 'java.util.IdentityHashMap', 'java.util.WeakHashMap',
+    'java.util.EnumMap', 'java.util.Properties',
+    'java.util.concurrent.ConcurrentHashMap',
+])
+
+
 class Decoder(object):
     def __init__(self, stream):
         self._stream = stream
         self._twoway = False
+        # Hessian2 三张独立引用表（spec §5）：
+        #   _refs        值引用：已读出的 list/map/object，按读取顺序下标引用（0x51）
+        #   _class_defs  类定义：'C' 定义的 {type, fields}
+        #   _types       类型引用：typed list/map 的 type 字符串
         self._refs = []
+        self._class_defs = []
+        self._types = []
 
     def decode(self):
         header = self._read(2)
@@ -69,6 +85,10 @@ class Decoder(object):
             header += self._read(14)
         flag = header[2]
         proto = flag & _SERIALIZATION_MASK
+        if proto != _HESSIAN2_SERIALIZATION_ID:
+            # P0-F1: 非 hessian2 序列化（如 fastjson=6/jdk=1/gson=4）不能被当作 hessian2 解析
+            raise RuntimeError('unsupported serialization id "%d" (only hessian2 id %d supported)'
+                               % (proto, _HESSIAN2_SERIALIZATION_ID))
         logging.debug('decode with version "%d"' % proto)
         if flag & _FLAG_TWOWAY:
             self._twoway = True
@@ -126,12 +146,17 @@ class Decoder(object):
     def _decode_response_body(self, id_, status):
         data, error = None, None
         if status == DubboResponse.OK:
-            status_code = self._read_int()  # TODO: see DecodeableRpcResult.java decode
+            # P0-F2: 对齐 DecodeableRpcResult.java
+            #   1 = RESPONSE_VALUE（数据）
+            #   0 = RESPONSE_WITH_EXCEPTION（异常）
+            #   2 = RESPONSE_NULL_VALUE（空）
+            status_code = self._read_int()
             if status_code == 1:
                 data = self._read_object()
-            elif status_code == 0:  # XXX: it should be error, need confirm
-                data = self._read_object()
+            elif status_code == 0:
+                error = self._read_object()
         else:
+            # 帧头 status != OK 时，body 直接是序列化的错误消息
             error = self._read_object()
         return DubboResponse(id_, status, data, error)
 
@@ -149,7 +174,7 @@ class Decoder(object):
             return int_to_bytes((tag - _BC_INT_BYTE_ZERO) << 8) + self._read(1)
         elif tag in _SHORT_INT:
             return int_to_bytes(tag - _BC_INT_SHORT_ZERO) + self._read(2)
-        elif tag in (b'I', _BC_LONG_INT):
+        elif tag in (ord(b'I'), _BC_LONG_INT):
             return self._read(4)
         elif tag in _DIRECT_LONG:
             return int_to_bytes(tag - _BC_LONG_ZERO)
@@ -159,42 +184,8 @@ class Decoder(object):
             return int_to_bytes(tag - _BC_LONG_SHORT_ZERO) + self._read(2)
         elif tag == _BYTE_L:
             return self._read(8)
-        elif tag == _BC_DOUBLE_ZERO:
-            return b'0.0'
-        elif tag == _BC_DOUBLE_ONE:
-            return b'1.0'
-        elif tag == _BC_DOUBLE_BYTE:
-            return self._read(1)
-        elif tag == _BC_DOUBLE_SHORT:
-            return self._read(2)
-        elif tag == _BC_DOUBLE_MILL:
-            return double_to_bytes(0.001 * bytes_to_int(self._read(4)))
-        elif tag == _BYTE_D:
-            return self._read(8)
-        elif tag in (_BS_STRING, _BS_STRING_TRUNK):
-            _sbuf = b''
-            _chunk_len = bytes_to_int(self._read(2))
-            for _ in range(_chunk_len):
-                ch = self._read_char()
-                if ch >= b'\x00':
-                    _sbuf += ch
-            return _sbuf
-        elif tag in _ZERO_BYTE:
-            _sbuf = b''
-            _chunk_len = tag - 0x00
-            for _ in range(_chunk_len):
-                ch = self._read_char()
-                if ch >= b'\x00':
-                    _sbuf += ch
-            return _sbuf
-        elif tag in (0x30, 0x31, 0x32, 0x33):
-            _sbuf = b''
-            _chunk_len = (tag - 0x30) * 256 + ord(self._read(1))
-            for _ in range(_chunk_len):
-                ch = self._read_char()
-                if ch >= b'\x00':
-                    _sbuf += ch
-            return _sbuf
+        elif tag in (_BS_STRING, _BS_STRING_TRUNK) or tag in _ZERO_BYTE or 0x30 <= tag <= 0x33:
+            return self._read_string_bytes(tag)
         raise RuntimeError('read bytes "%d" error' % tag)
 
     def _read_object(self, tag=None):
@@ -212,8 +203,8 @@ class Decoder(object):
             return ((tag - _BC_INT_BYTE_ZERO) << 8) + ord(self._read(1))
         elif tag in _SHORT_INT:
             return ((tag - _BC_INT_SHORT_ZERO) << 16) + bytes_to_int(self._read(2))
-        elif tag in (b'I', _BC_LONG_INT):
-            return bytes_to_int(self._read(4))
+        elif tag in (ord(b'I'), _BC_LONG_INT):
+            return bytes_to_int(self._read(4), signed=True)
         elif tag in _DIRECT_LONG:
             return tag - _BC_LONG_ZERO
         elif tag in _BYTE_LONG:
@@ -238,55 +229,23 @@ class Decoder(object):
             return timestamp_to_datetime(bytes_to_long(self._read(8)))
         elif tag == _BYTE_DATE_MINUTE:
             return timestamp_to_datetime(bytes_to_int(self._read(4)) * 60)
-        elif tag in (_BS_STRING, _BS_STRING_TRUNK):
-            _sbuf = b''
-            _chunk_len = bytes_to_int(self._read(2))
-            for _ in range(_chunk_len):
-                ch = self._read_char()
-                if ch >= b'\x00':
-                    _sbuf += ch
-            return _sbuf.decode()
-        elif tag in _ZERO_BYTE:
-            _sbuf = b''
-            _chunk_len = tag - 0x00
-            for _ in range(_chunk_len):
-                ch = self._read_char()
-                if ch >= b'\x00':
-                    _sbuf += ch
-            return _sbuf.decode()
-        elif tag in (0x30, 0x31, 0x32, 0x33):
-            _sbuf = b''
-            _chunk_len = (tag - 0x30) * 256 + ord(self._read(1))
-            for _ in range(_chunk_len):
-                ch = self._read_char()
-                if ch >= b'\x00':
-                    _sbuf += ch
-            return _sbuf.decode()
-        elif tag in (ord('A'), ord('B')):
-            _sbuf = b''
-            _chunk_len = bytes_to_int(self._read(2))
-            _chunk_len, data = self._read_byte(_chunk_len)
-            while data >= 0:
-                _sbuf += data
-                _chunk_len, data = self._read_byte(_chunk_len)
-            return _sbuf
-        elif tag in range(0x20, 0x2f + 1):
-            return self._read(tag - 0x20)
-        elif tag in (0x34, 0x35, 0x36, 0x37):
-            return self._read((tag - 0x34) * 256 + ord(self._read(1)))
+        elif tag in (_BS_STRING, _BS_STRING_TRUNK) or tag in _ZERO_BYTE or 0x30 <= tag <= 0x33:
+            return self._read_string_bytes(tag).decode('utf-8', errors='surrogatepass')
+        elif tag in (ord(b'b'), ord(b'B'),) or tag in range(0x20, 0x2f + 1) or tag in range(0x34, 0x37 + 1):
+            return self._read_binary(tag)
         elif tag == 0x55:  # variable length list typed
-            raise RuntimeError('unimplemented')
-        elif tag == 0x57:  # list variable untyped
-            raise RuntimeError('unimplemented')
+            return self._read_variable_list(typed=True)
+        elif tag == 0x57:  # variable length list untyped
+            return self._read_variable_list(typed=False)
         elif tag == 0x56:  # fixed list typed
-            self._read_bytes()  # list type
+            self._read_type()  # list type（记入类型表）
             length = self._read_int()
             return self._read_list(length, JavaList)
         elif tag == 0x58:  # fixed list untyped
             length = self._read_int()
             return self._read_list(length)
-        elif tag in range(0x70, 0x78):  # compact fixed list
-            self._read_bytes()  # list type
+        elif tag in range(0x70, 0x78):  # compact fixed list typed
+            self._read_type()
             length = tag - 0x70
             return self._read_list(length, JavaList)
         elif tag in range(0x78, 0x7f + 1):  # compact fixed list untyped
@@ -299,21 +258,17 @@ class Decoder(object):
         elif tag == ord(b'C'):
             self._read_object_def()
             return self._read_object()
-        elif tag in range(0x60, 0x6f + 1):
-            idx = tag - 0x60
-            try:
-                ref = self._refs[idx]
-                ref['args'] = []
-                for field_name in ref['fields']:
-                    ref['args'].append(self._read_object())
-                return _cls_factory(ref)
-            except IndexError:
-                raise RuntimeError('class definition not found, idx: %d' % idx)
-        elif tag == ord(b'0'):
-            raise RuntimeError('unimplemented')
+        elif tag == ord(b'O'):  # object long form: 'O' + class-def index + values
+            idx = self._read_int()
+            return self._read_object_instance(idx)
+        elif tag in range(0x60, 0x6f + 1):  # object compact form: [x60-x6f] values*
+            return self._read_object_instance(tag - 0x60)
         elif tag == _BC_REF:
             idx = self._read_int()
-            return self._refs[idx]
+            try:
+                return self._refs[idx]
+            except IndexError:
+                raise RuntimeError('value reference not found, idx: %d' % idx)
         elif tag == 0x5a:  # b'Z'
             raise EOFError
         else:
@@ -321,8 +276,27 @@ class Decoder(object):
 
     def _read_list(self, length, list_type=None):
         if list_type:
-            return list_type([self._read_object() for _ in range(length)])
-        return [self._read_object() for _ in range(length)]
+            result = list_type()
+        else:
+            result = []
+        # 读元素前先登记值引用，保证元素可自引用/互引用（H6）
+        self._refs.append(result)
+        for _ in range(length):
+            result.append(self._read_object())
+        return result
+
+    def _read_variable_list(self, typed):
+        if typed:
+            self._read_type()
+            result = JavaList()
+        else:
+            result = []
+        self._refs.append(result)
+        while True:
+            tag = ord(self._read(1))
+            if tag == 0x5a:  # 'Z' 终止
+                return result
+            result.append(self._read_object(tag))
 
     def _read_object_def(self):
         type_ = self._read_bytes()
@@ -330,10 +304,25 @@ class Decoder(object):
         field_names = []
         for _ in range(len_):
             field_names.append(self._read_bytes())
-        self._refs.append({'type': type_, 'fields': field_names})
+        self._class_defs.append({'type': type_, 'fields': field_names})
 
-    def _read_int(self):
-        tag = ord(self._read(1))
+    def _read_object_instance(self, def_idx):
+        try:
+            ref = self._class_defs[def_idx]
+        except IndexError:
+            raise RuntimeError('class definition not found, idx: %d' % def_idx)
+        type_name = ref['type'].decode()
+        field_names = [fn.decode() for fn in ref['fields']]
+        args = [self._read_object() for _ in field_names]
+        obj = new_object(type_name, **dict(zip(field_names, args)))
+        # namedtuple 不可变，值引用只能在字段全部读完、对象创建后登记；
+        # 因此“对象的属性引用对象自身”这种自引用目前无法正确还原（Java 对象可变，无此限制）
+        self._refs.append(obj)
+        return obj
+
+    def _read_int(self, tag=None):
+        if tag is None:
+            tag = ord(self._read(1))
         if tag == ord(b'N'):
             return 0
         elif tag == ord(b'F'):
@@ -347,7 +336,7 @@ class Decoder(object):
         elif tag in range(0xd0, 0xd7 + 1):
             return ((tag - _BC_INT_SHORT_ZERO) << 16) + bytes_to_int(self._read(2))
         elif tag in (ord(b'I'), _BC_LONG_INT):
-            return bytes_to_int(self._read(4))
+            return bytes_to_int(self._read(4), signed=True)
         elif tag in range(0xd8, 0xef + 1):
             return tag - _BC_LONG_ZERO
         elif tag in range(0xf0, 0xff + 1):
@@ -370,47 +359,92 @@ class Decoder(object):
             return bytes_to_long(self._read(8))
         raise RuntimeError('read int error "%d"' % tag)
 
+    def _read_type(self):
+        ''' 读取类型引用：字符串形式入类型表，int 形式按下标查类型表（H7） '''
+        tag = ord(self._read(1))
+        if tag in (_BS_STRING, _BS_STRING_TRUNK) or tag in _ZERO_BYTE or 0x30 <= tag <= 0x33:
+            type_ = self._read_string_bytes(tag).decode('utf-8', errors='surrogatepass')
+            self._types.append(type_)
+            return type_
+        idx = self._read_int(tag)
+        try:
+            if idx < 0:
+                raise IndexError
+            return self._types[idx]
+        except IndexError:
+            raise RuntimeError('type reference not found, idx: %d' % idx)
+
+    def _read_string_bytes(self, tag):
+        ''' 读取一个字符串（可能分块），返回原始 UTF-8(CESU-8) 字节（H3） '''
+        sbuf = b''
+        while True:
+            if tag == _BS_STRING_TRUNK:  # 'R' 非终块
+                chunk_len = bytes_to_int(self._read(2))
+                for _ in range(chunk_len):
+                    sbuf += self._read_char()
+                tag = ord(self._read(1))
+            elif tag == _BS_STRING:  # 'S' 终块
+                chunk_len = bytes_to_int(self._read(2))
+                for _ in range(chunk_len):
+                    sbuf += self._read_char()
+                return sbuf
+            elif tag in _ZERO_BYTE:  # [x00-x1f] 定长
+                chunk_len = tag - 0x00
+                for _ in range(chunk_len):
+                    sbuf += self._read_char()
+                return sbuf
+            elif 0x30 <= tag <= 0x33:  # [x30-x33] 短定长
+                chunk_len = (tag - 0x30) * 256 + ord(self._read(1))
+                for _ in range(chunk_len):
+                    sbuf += self._read_char()
+                return sbuf
+            else:
+                raise RuntimeError('read string error: code "%d"' % tag)
+
+    def _read_binary(self, tag):
+        ''' 读取二进制数据（可能分块）：'b' 非终块 / 'B' 终块 / 紧凑形式（H4） '''
+        sbuf = b''
+        while True:
+            if tag in (ord(b'b'), ord(b'B')):
+                chunk_len = bytes_to_int(self._read(2))
+                final = tag == ord(b'B')
+            elif tag in range(0x20, 0x2f + 1):
+                chunk_len = tag - 0x20
+                final = True
+            elif tag in range(0x34, 0x37 + 1):
+                chunk_len = (tag - 0x34) * 256 + ord(self._read(1))
+                final = True
+            else:
+                raise RuntimeError('read binary error: code "%d"' % tag)
+            sbuf += self._read(chunk_len)
+            if final:
+                return sbuf
+            tag = ord(self._read(1))
+
     def _read_map(self, code=None):
-        if code == b't':
-            type_len = struct.unpack('>H', self._read(2))[0]
-            if type_len > 0:
-                # a typed map deserializes to an object
-                type_ = self._read(type_len)
-                logging.warn('typed map: %s' % type_)
-
-            code = self._read(1)
+        if code == ord(b'M'):
+            # typed map：java.util.*Map 反序列化为 dict，其余按对象还原（H9）
+            type_ = self._read_type()
+            is_map = type_ is None or type_ in _MAP_TYPES or type_.endswith('Map')
         else:
-            # untyped maps deserialize to a dict
-            if code == b'M':
-                # Read and discard type
-                try:
-                    self._read_object()
-                except RuntimeError:
-                    code = b'Z'
-                code = self._read(1)
-
-        result = {}
-
+            type_ = None
+            is_map = True
+        if is_map:
+            result = {}
+            self._refs.append(result)  # 读条目前先登记，支持自引用 map
+        else:
+            result = {}
+        code = self._read(1)
         while code not in (b'z', b'Z'):
-            try:
-                key, value = self._read_keyval(code)
-            except EOFError:
-                break
-
-            if key == {}:
-                return result
-
+            key = self._read_object(code and ord(code))
+            value = self._read_object()
             result[key] = value
-
             code = self._read(1)
-
-        return result
-
-    def _read_keyval(self, code):
-        key = self._read_object(code and ord(code))
-        value = self._read_object()
-
-        return key, value
+        if is_map:
+            return result
+        obj = new_object(type_, **result)
+        self._refs.append(obj)
+        return obj
 
     def _read_char(self):
         ch = self._read(1)
@@ -422,20 +456,7 @@ class Decoder(object):
         elif ((int_ch & 0xf0) == 0xe0):
             return ch + self._read(2)
 
-        raise RuntimeError('unknown charactor "%d"' % ch)
-
-    def _read_byte(self, _chunk_len):
-        while _chunk_len <= 0:
-            code = ord(self._read(1))
-            if code in (ord(b'A'), ord(b'B')):
-                _chunk_len = bytes_to_int(self._read(2))
-            elif code in range(0x20, 0x2f + 1):
-                _chunk_len = code - 0xa0
-            elif code in (0x34, 0x35, 0x36, 0x37):
-                _chunk_len = (code - 0x34) * 256 + ord(self._read(1))
-
-        _chunk_len -= 1
-        return _chunk_len, self._read(1)
+        raise RuntimeError('unknown charactor "%d"' % int_ch)
 
     def _read(self, length):
         read_func = hasattr(self._stream, 'recv') and self._stream.recv or self._stream.read
@@ -503,19 +524,101 @@ def _cls_names_to_desc(cls_names):
     return ''.join(_handler_map.get(name, complex_handler(name)) for name in cls_names)
 
 
-def _cls_factory(ref):
-    type_name = ref['type'].decode()
-    kwargs = dict(zip(map(lambda f: f.decode(), ref['fields']), ref['args']))
-    return new_object(type_name, **kwargs)
+class _EncodeState(object):
+    ''' 一次 encode 调用内的共享状态：类定义表 + 值引用表（H11） '''
+
+    def __init__(self, class_names=None):
+        self.class_names = list(class_names) if class_names else []
+        self.value_refs = {}  # id(obj) -> ref index
 
 
 _STRING_DIRECT_MAX = 0x1f
 _STRING_SHORT_MAX = 0x3ff
+_STRING_CHUNK_UNITS = 0xffff  # 分块长度上限：16-bit 长度字段
 _BC_STRING_SHORT = 0x30
+_INT32_MIN = -0x80000000
+_INT32_MAX = 0x7fffffff
 
 
-def encode_object(field, idx=0, cls_names=[]):
+def _utf16_units(s):
+    ''' 统计字符串的 UTF-16 单元数（spec: 长度字段按 16-bit 字符计数） '''
+    return len(s.encode('utf-16-be', errors='surrogatepass')) // 2
+
+
+def _string_chunks(s, max_units):
+    ''' 按码点切块，保证不切断代理对 '''
+    chunks = []
+    start = 0
+    units = 0
+    for i, ch in enumerate(s):
+        units += 2 if ord(ch) > 0xffff else 1
+        if units > max_units:
+            chunks.append(s[start:i])
+            start = i
+            units = 2 if ord(ch) > 0xffff else 1
+    if start < len(s):
+        chunks.append(s[start:])
+    return chunks
+
+
+def _encode_string(s):
+    ''' 编码字符串：短串用直接/短形式，长串按 64K(UTF-16 单元) 分块（H1） '''
+    units = _utf16_units(s)
+    if units <= _STRING_DIRECT_MAX:
+        return int_to_bytes(units) + s.encode('utf-8', errors='surrogatepass')
+    elif units <= _STRING_SHORT_MAX:
+        return int_to_bytes((_BC_STRING_SHORT << 8) + units) + s.encode('utf-8', errors='surrogatepass')
+    result = b''
+    chunks = _string_chunks(s, _STRING_CHUNK_UNITS)
+    for i, chunk in enumerate(chunks):
+        tag = b'S' if i == len(chunks) - 1 else b'R'  # 终块 S / 非终块 R
+        result += tag + int_to_bytes(_utf16_units(chunk)) + chunk.encode('utf-8', errors='surrogatepass')
+    return result
+
+
+def _encode_int(field):
+    ''' 编码整数：普通 int 按取值范围自动在 int/long 间选择（P0-T2） '''
+    if field >= -0x10 and field <= 0x2f:
+        return int_to_bytes(field + _BC_INT_ZERO)
+    elif field >= -0x800 and field <= 0x7ff:
+        return int_to_bytes((_BC_INT_BYTE_ZERO << 8) + field)
+    elif field >= -0x40000 and field <= 0x3ffff:
+        return int_to_bytes((_BC_INT_SHORT_ZERO << 16) + field)
+    elif field >= _INT32_MIN and field <= _INT32_MAX:
+        return b'I' + int_to_bytes(field, 4, signed=True)
+    # 超出 int32 范围：自动升为 64-bit long，避免静默截断
+    return b'L' + long_to_bytes(field)
+
+
+def _encode_long(field):
+    ''' 编码 long（显式 long 标记） '''
+    if -0x08 <= field and field <= 0x0f:
+        return int_to_bytes(field + _BC_LONG_ZERO)
+    elif -0x800 <= field and field <= 0x7ff:
+        return int_to_bytes((_BC_LONG_BYTE_ZERO << 8) + field)
+    elif -0x40000 <= field and field <= 0x3ffff:
+        return int_to_bytes((_BC_LONG_SHORT_ZERO << 16) + field)
+    elif field >= _INT32_MIN and field <= _INT32_MAX:
+        return chr(_BC_LONG_INT).encode() + int_to_bytes(field, 4, signed=True)
+    return b'L' + long_to_bytes(field)
+
+
+def _take_ref(field, state):
+    ''' 若对象已编码过则返回引用字节；否则登记并返回 None '''
+    ref = state.value_refs.get(id(field))
+    if ref is not None:
+        return b'\x51' + _encode_int(ref)
+    state.value_refs[id(field)] = len(state.value_refs)
+    return None
+
+
+def encode_object(field, idx=0, cls_names=None):
     ''' encode an object into hessian2 stream '''
+    state = _EncodeState(cls_names)
+    return _encode_object(field, idx, state)
+
+
+def _encode_object(field, idx, state):
     if field is None:
         return b'N'
     elif field is True:
@@ -523,56 +626,43 @@ def encode_object(field, idx=0, cls_names=[]):
     elif field is False:
         return b'F'
     elif isinstance(field, str):
-        # TODO: field convert required? see Hessian2Output.java -> printString
-        length = len(field)
-        if length <= _STRING_DIRECT_MAX:
-            return int_to_bytes(length) + field.encode()
-        elif length <= _STRING_SHORT_MAX:
-            return int_to_bytes((_BC_STRING_SHORT << 8) + length) + field.encode()
-        return b'S' + int_to_bytes(length) + field.encode()
+        return _encode_string(field)
     elif isinstance(field, dict):
+        ref = _take_ref(field, state)
+        if ref is not None:
+            return ref
         result = b'H'
         for k, v in field.items():
-            result += encode_object(k, cls_names=[])
-            result += encode_object(v, cls_names=[])
+            result += _encode_object(k, idx, state)
+            result += _encode_object(v, idx, state)
         result += b'Z'
         return result
     elif isinstance(field, (list, set)):
+        ref = _take_ref(field, state)
+        if ref is not None:
+            return ref
         result = b''
         type_ = type(field).__name__
         if len(field) < 8:
             if type_ not in ('list', 'set'):
                 result += int_to_bytes(len(field) + 0x70)
-                result += encode_object(type_)
+                result += _encode_object(type_, idx, state)
             else:
                 result += int_to_bytes(len(field) + 0x78)
         else:
             if type_ not in ('list', 'set'):
                 result += b'\x56'
-                result += encode_object(type_)
+                result += _encode_object(type_, idx, state)
             else:
                 result += b'\x58'
-            result += encode_object(len(field))
-        result += b''.join(encode_object(e, cls_names=[]) for e in field)
+            result += _encode_object(len(field), idx, state)
+        for e in field:
+            result += _encode_object(e, idx, state)
         return result
     elif isinstance(field, long):
-        if -0x08 <= field and field <= 0x0f:
-            return int_to_bytes(field + _BC_LONG_ZERO)
-        elif -0x800 <= field and field <= 0x7ff:
-            return int_to_bytes((_BC_LONG_BYTE_ZERO << 8) + field)
-        elif -0x40000 <= field and field <= 0x3ffff:
-            return int_to_bytes((_BC_LONG_SHORT_ZERO << 16) + field)
-        elif -0x80000000 <= field and field <= 0x7fffffff:
-            return chr(_BC_LONG_INT).encode() + int_to_bytes(field, 4)
-        return b'L' + long_to_bytes(field)
+        return _encode_long(field)
     elif isinstance(field, int):
-        if field >= -0x10 and field <= 0x2f:
-            return int_to_bytes(field + _BC_INT_ZERO)
-        elif field >= -0x800 and field <= 0x7ff:
-            return int_to_bytes((_BC_INT_BYTE_ZERO << 8) + field)
-        elif field >= -0x40000 and field <= 0x3ffff:
-            return int_to_bytes((_BC_INT_SHORT_ZERO << 16) + field)
-        return b'I' + int_to_bytes(field, 4)
+        return _encode_int(field)
     elif isinstance(field, (float, double)):
         int_field = int(field)
         if int_field == field:
@@ -590,20 +680,23 @@ def encode_object(field, idx=0, cls_names=[]):
             return chr(_BC_DOUBLE_MILL).encode() + int_to_bytes(mills, 4, signed=True)
         return b'D' + double_to_bytes(field)
     elif hasattr(field, '_fields'):  # namedtuple subclass instance
+        ref = _take_ref(field, state)
+        if ref is not None:
+            return ref
         cls_name = field.__class__.__name__
-        if cls_name not in cls_names:  # XXX: not thread safe
-            cls_names.append(cls_name)
-        # object def
-        result = b'C' + encode_object(cls_name)
-        #   count of field names
-        result += encode_object(len(field._fields))
-        #   field names
+        if cls_name not in state.class_names:
+            state.class_names.append(cls_name)
+            # 类定义只在首次出现时写出
+            result = b'C' + _encode_object(cls_name, idx, state)
+            result += _encode_object(len(field._fields), idx, state)
+            for field_name in field._fields:
+                result += _encode_object(field_name, idx, state)
+        else:
+            result = b''
+        # 对象引用类定义：0x60 + 类定义下标
+        result += int_to_bytes(state.class_names.index(cls_name) + 0x60)
         for field_name in field._fields:
-            result += encode_object(field_name)
-        # object fields
-        result += int_to_bytes(idx + cls_names.index(cls_name) + 0x60)
-        for field_name in field._fields:
-            result += encode_object(getattr(field, field_name), idx, cls_names)
+            result += _encode_object(getattr(field, field_name), idx, state)
         return result
     else:  # custom object
         raise RuntimeError('unknown field "%s", type "%s"' % (field, type(field)))
@@ -724,8 +817,18 @@ class DubboHeartBeatResponse(_HeartBeat):
 
 
 class DubboResponse(object):
+    # P1-F4: 补齐 Dubbo 协议响应状态码
     OK = 20
-    UnknownError = 90
+    CLIENT_TIMEOUT = 30
+    SERVER_TIMEOUT = 31
+    BAD_REQUEST = 40
+    BAD_RESPONSE = 50
+    SERVICE_NOT_FOUND = 60
+    SERVICE_ERROR = 70
+    SERVER_ERROR = 80
+    CLIENT_ERROR = 90
+    UnknownError = 90  # 兼容旧名
+    SERVER_THREADPOOL_EXHAUSTED_ERROR = 100
 
     def __init__(self, id, status, data, error):
         self.id = id
@@ -759,10 +862,14 @@ class DubboResponse(object):
         stream.write(body)
 
     def _get_body(self):
-        if self.error is None:
-            status_byte = self.data is None and int_to_bytes(2 + 0x90) or int_to_bytes(1 + 0x90)
-            return status_byte + encode_object(self.data, 0, [])
-        return encode_object(self.error, 0, [])
+        if self.status != self.OK:
+            # 帧头 status != OK：body 直接是序列化的错误消息（对齐 Dubbo 实现）
+            return encode_object(self.error)
+        if self.error is not None:
+            # OK 状态携带业务异常：RESPONSE_WITH_EXCEPTION(0) + 异常对象（P1-F3）
+            return int_to_bytes(0 + 0x90) + encode_object(self.error)
+        status_byte = self.data is None and int_to_bytes(2 + 0x90) or int_to_bytes(1 + 0x90)
+        return status_byte + encode_object(self.data, 0, [])
 
     def __repr__(self):
         return f'id: {self.id}, status: {self.status}, data: {self.data}, error: {self.error}'
